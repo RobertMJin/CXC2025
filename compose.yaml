@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  jupyter:
+    build: .
+    container_name: jupyter_notebook
+    volumes:
+      - ./notebooks:/app/notebooks
+    ports:
+      - "8888:8888"
+    depends_on:
+      - postgres
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+
+  postgres:
+    image: postgres:15
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
