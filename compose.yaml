@@ -1,11 +1,10 @@
-version: '3.8'
-
 services:
   jupyter:
     build: .
     container_name: jupyter_notebook
     volumes:
       - ./notebooks:/app/notebooks
+      - ./data:/app/data
     ports:
       - "8888:8888"
     depends_on:
@@ -18,9 +17,9 @@ services:
     container_name: postgres_db
     restart: always
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+      POSTGRES_USER: rjin
+      POSTGRES_PASSWORD: cxc2025rj
+      POSTGRES_DB: cxc2025
     ports:
       - "5432:5432"
     volumes:
