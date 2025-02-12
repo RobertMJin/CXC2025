@@ -7,23 +7,6 @@ services:
       - ./data:/app/data
     ports:
       - "8888:8888"
-    depends_on:
-      - postgres
     environment:
       - JUPYTER_ENABLE_LAB=yes
-
-  postgres:
-    image: postgres:15
-    container_name: postgres_db
-    restart: always
-    environment:
-      POSTGRES_USER: rjin
-      POSTGRES_PASSWORD: cxc2025rj
-      POSTGRES_DB: cxc2025
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
+      - DATABASE_URL=${DATABASE_URL}  # Load Supabase URL from .env file
