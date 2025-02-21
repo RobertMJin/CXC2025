@@ -10,8 +10,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# TABLE_NAME = "v2_federato_amplitude_data"
-TABLE_NAME = "v2024_1_federato_amplitude_data"
+TABLE_NAME = "v2_federato_amplitude_data"
+# TABLE_NAME = "v2024_1_federato_amplitude_data"
 
 @app.route("/", methods=["GET"])
 def hello():
@@ -58,7 +58,7 @@ def get_user_sessions(user_id):
             mapping[key] = value
         dict_mapping[category] = mapping    
     
-    events_response = supabase.table(TABLE_NAME).select("*").eq("amplitude_id", amplitude_id).execute()
+    events_response = supabase.table(TABLE_NAME).select("*").eq("amplitude_id", amplitude_id).order("event_time", desc=False).execute()
     
     events = []
     for event in events_response.data:
