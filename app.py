@@ -108,7 +108,7 @@ def get_user_sessions(user_id):
                 event[f"time_since_last_{j}"] = None
 
         if i < len(events) - 1:
-            event["next_event_type"] = events[i + 1]["event_type"]
+            event["next_et"] = events[i + 1]["event_type"]
             event["dict_next_et"] = events[i + 1]["dict_event_type"]
         else:
             event["next_et"] = ""
