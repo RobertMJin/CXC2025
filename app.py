@@ -98,19 +98,21 @@ def get_user_sessions(user_id):
         for j in range(1, 5):
             if i - j >= 0:
                 event[f"prev_{j}_event_type"] = events[i - j]["event_type"]
+                event[f"dict_pet{j}"] = events[i - j]["dict_event_type"]
                 event[f"time_since_last_{j}"] = (event["event_time"] - events[i-j]["event_time"]).total_seconds()
                 if event[f"time_since_last_{j}"] < 0:
                     event[f"time_since_last_{j}"] = None
             else:
                 event[f"prev_{j}_event_type"] = ""
+                event[f"dict_pet{j}"] = None
                 event[f"time_since_last_{j}"] = None
 
         if i < len(events) - 1:
             event["next_event_type"] = events[i + 1]["event_type"]
-            event["dict_next_event"] = events[i + 1]["dict_event_type"]
+            event["dict_next_et"] = events[i + 1]["dict_event_type"]
         else:
-            event["next_event_type"] = ""
-            event["dict_next_event"] = None
+            event["next_et"] = ""
+            event["dict_next_et"] = None
 
     for event in events:
         event["event_time"] = event["event_time"].isoformat()
