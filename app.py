@@ -117,8 +117,16 @@ def get_user_sessions(user_id):
     for event in events:
         event["event_time"] = event["event_time"].isoformat()
     
-    return events
+    return jsonify(events)
 
+@app.route("/model/search/users/<int:start_id>/<int:end_id>", methods=["GET"])
+def get_users_sessions_range(start_id, end_id):
+    if start_id > end_id:
+        return jsonify({"error": "start_id must be less than or equal to end_id"}), 400
+
+    results = [get_user_sessions(user_id).json for user_id in range(start_id, end_id + 1)]
+    
+    return jsonify(results)
 
 
 if __name__ == "__main__":
