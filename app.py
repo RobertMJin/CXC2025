@@ -2,8 +2,21 @@ from datetime import datetime
 import os, time, json
 from flask import Flask, jsonify, request
 from supabase import create_client, Client
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(
+    app,
+    resources={
+        r"/*": {
+            "origins": ["http://localhost:3000"],  # Specific origin instead of *
+            # "origins": "*",  # Allow all origins
+            "methods": ["GET", "POST", "OPTIONS"],  # Allowed methods
+            "allow_headers": ["Content-Type", "Authorization"],  # Common headers
+            "supports_credentials": True,
+        }
+    },
+)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
