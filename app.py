@@ -311,7 +311,7 @@ def create_user_session():
 @app.route("/user-data", methods=["POST"])
 def get_user_data():
     data = request.get_json()
-    user_id = data["user_id"]
+    user_id = data["userId"]
 
     user = supabase.table("user_table").select("*").eq("user_id", user_id).execute()
     if user.data:
@@ -483,4 +483,4 @@ def predict():
     })
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(port=5000, debug=True)
