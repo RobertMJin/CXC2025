@@ -9,7 +9,8 @@ CORS(
     app,
     resources={
         r"/*": {
-            "origins": "*",  # Allow all origins
+            "origins": ["http://localhost:3000"],  # Specific origin instead of *
+            # "origins": "*",  # Allow all origins
             "methods": ["GET", "POST", "OPTIONS"],  # Allowed methods
             "allow_headers": ["Content-Type", "Authorization"],  # Common headers
             "supports_credentials": True,
@@ -236,7 +237,7 @@ def get_profile():
 def create_user_session():
     data = request.get_json()
     user_id = data.get("userId")
-    events = data.get("events")
+    events_data = data.get("events", [])
 
     dict_et_mapping = {}
     dict_response = (
@@ -249,7 +250,7 @@ def create_user_session():
 
     events = []
 
-    for i in range(5):
+    for i, event in enumerate(events_data):
         event_json = {}
         event_json["dict_next_et"] = None
         event_json["next_et"] = None
@@ -260,16 +261,20 @@ def create_user_session():
             event_json[f"prev_{j}_event_type"] = None
             event_json[f"time_since_last_{j}"] = None
 
-        event_type = request.form.get(f"event_{i+1}")
+        event_type = event.get("event_type")  # Get event_type from the event object
         event_json["event_type"] = event_type
         event_json["dict_event_type"] = dict_et_mapping.get(event_type)
 
         if i > 0:
             event_json["time_since_last"] = (
-                event_json["event_time"] - events[i - 1]["event_time"]
+                (event_json["event_time"] - events[i - 1]["event_time"]).total_seconds()
+                if "event_time" in event_json
+                else None
             )
 
-    return jsonify({"message": "Session created successfully"})
+        events.append(event_json)
+
+    return jsonify({"message": "Session created successfully", "events": events})
 
 
 @app.route("/model/search/user_chunk/<int:user_id>/<int:chunk>", methods=["GET"])
