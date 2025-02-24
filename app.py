@@ -4,6 +4,7 @@ from flask import Flask, jsonify, request
 from supabase import create_client, Client
 from flask_cors import CORS
 import dotenv
+
 # import torch
 # from model import encode_data, GATMinGRU, decode_event
 # from langchain_groq import ChatGroq
@@ -29,8 +30,8 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # model = GATMinGRU(input_size=166, hidden_size=256, event_embedding_size=16, gat_heads=2)
-# model.load_state_dict(torch.load("/Users/fahmiomer/CXC2025/checkpoint_epoch_6.pth")) 
-# model.eval() 
+# model.load_state_dict(torch.load("/Users/fahmiomer/CXC2025/checkpoint_epoch_6.pth"))
+# model.eval()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -245,6 +246,11 @@ def get_profile():
 
 @app.route("/create-session", methods=["GET", "POST", "OPTIONS"])
 def create_user_session():
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+
     dicts = [
         "event_type",
         "region",
@@ -255,7 +261,7 @@ def create_user_session():
         "os_name",
     ]
     data = request.get_json()
-    user_id = data["user_id"]
+    user_id = data["userId"]
     events = data["events"]
     user = None
 
@@ -309,6 +315,7 @@ def create_user_session():
 
     return jsonify(event_json)
 
+
 @app.route("/user-data", methods=["POST"])
 def get_user_data():
     data = request.get_json()
@@ -319,6 +326,7 @@ def get_user_data():
         user = user.data[0]
         return jsonify(user)
     return "no user", 400
+
 
 @app.route("/model/search/user_chunk/<int:user_id>/<int:chunk>", methods=["GET"])
 def get_user_chunk(user_id, chunk):
@@ -459,6 +467,7 @@ def get_user_chunk(user_id, chunk):
 
     return jsonify(events)
 
+
 @app.route("/predict", methods=["POST"])
 def predict():
     data = request.json  # Expecting JSON input
@@ -466,22 +475,29 @@ def predict():
         return jsonify({"error": "No input data provided"}), 400
 
     # Encode the input data
-    encoded_features, (target_event_embedding, target_event_index, target_time) = encode_data(data)
+    encoded_features, (target_event_embedding, target_event_index, target_time) = (
+        encode_data(data)
+    )
 
     # Convert to the appropriate tensor format
     encoded_features = encoded_features.unsqueeze(0)  # Add batch dimension if necessary
 
     # Forward pass through the model
     with torch.no_grad():
-        candidate_events, time_prediction = model(encoded_features, edge_index=None, h_prev1=None, h_prev2=None)
+        candidate_events, time_prediction = model(
+            encoded_features, edge_index=None, h_prev1=None, h_prev2=None
+        )
 
     # Decode the output
     decoded_event_index = decode_event(candidate_events[0], model.event_embedding_layer)
 
-    return jsonify({
-        "predicted_event_index": decoded_event_index,
-        "predicted_time": time_prediction.item()  # Convert tensor to Python float
-    })
+    return jsonify(
+        {
+            "predicted_event_index": decoded_event_index,
+            "predicted_time": time_prediction.item(),  # Convert tensor to Python float
+        }
+    )
+
 
 if __name__ == "__main__":
     app.run(debug=True)
