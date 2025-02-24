@@ -1,5 +1,5 @@
 # Project Title
-CXC2025-Federato Thingy
+CXC2025-Federato Track – Lasagna
 
 # Front end
 https://github.com/dianalam122/CXC2025frontend
