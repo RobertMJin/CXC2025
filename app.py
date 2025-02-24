@@ -12,6 +12,7 @@ CORS(
             "origins": "*",  # Allow all origins
             "methods": ["GET", "POST", "OPTIONS"],  # Allowed methods
             "allow_headers": ["Content-Type", "Authorization"],  # Common headers
+            "supports_credentials": True,
         }
     },
 )
@@ -231,8 +232,12 @@ def get_profile():
     return jsonify(profile)
 
 
-@app.route("/create-session", methods=["GET"])
+@app.route("/create-session", methods=["POST"])
 def create_user_session():
+    data = request.get_json()
+    user_id = data.get("userId")
+    events = data.get("events")
+
     dict_et_mapping = {}
     dict_response = (
         supabase.table("event_type").select("event_type", "dict_event_type").execute()
@@ -263,6 +268,8 @@ def create_user_session():
             event_json["time_since_last"] = (
                 event_json["event_time"] - events[i - 1]["event_time"]
             )
+
+    return jsonify({"message": "Session created successfully"})
 
 
 @app.route("/model/search/user_chunk/<int:user_id>/<int:chunk>", methods=["GET"])
