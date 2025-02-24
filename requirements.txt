@@ -131,3 +131,4 @@ websockets==14.2
 Werkzeug==3.1.3
 widgetsnbextension==4.0.13
 yarl==1.18.3
+Flask-CORS==4.0.0
