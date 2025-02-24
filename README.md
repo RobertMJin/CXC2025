@@ -1,6 +1,9 @@
 # Project Title
 CXC2025-Federato Thingy
 
+# Front end
+https://github.com/dianalam122/CXC2025frontend
+
 ## Description
 We cooking
 
