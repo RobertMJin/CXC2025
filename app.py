@@ -218,8 +218,8 @@ def create_user_session():
 
 
 
-@app.route("/model/search/user_chunk/<int:user_id>/<int:chunk>", methods=["GET"])
-def get_user_chunk(user_id, chunk):
+@app.route("/model/search/user_chunk/<int:refined_user_id>/<int:chunk>", methods=["GET"])
+def get_user_chunk(refined_user_id, chunk):
     categories = [
         "amplitude_id",
         "app", 
@@ -244,8 +244,8 @@ def get_user_chunk(user_id, chunk):
         "device_type",
         "os_name",
     ]
-
-    user_response = supabase.table("user_table").select("amplitude_id, average_session_time, total_session_time, user_retention_30").eq("user_id", user_id).execute()
+    user_id = supabase.table("user_table_refined_v3").select("user_id").eq("user_index", refined_user_id).execute().data[0]["user_id"]
+    user_response = supabase.table("user_table_refined_v3").select("amplitude_id, average_session_time, total_session_time, user_retention_30").eq("user_id", user_id).execute()
     user_response = user_response.data[0]
     amplitude_id = user_response["amplitude_id"]
 
@@ -259,7 +259,7 @@ def get_user_chunk(user_id, chunk):
             mapping[key] = value
         dict_mapping[category] = mapping    
     
-    batch_size = 10000
+    batch_size = 1000
     offset = chunk * batch_size
     events_response = []
     
@@ -277,7 +277,7 @@ def get_user_chunk(user_id, chunk):
         return f"no chunk at rows {offset} to {offset + batch_size}", 400
     events_response.extend(events_batch.data)
     
-    print(f"processed rows {offset} to {offset + batch_size}")
+    print(f"processed rows {offset} to {offset + len(events_response)}")
 
     events = []
     for event in events_response:
