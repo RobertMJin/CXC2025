@@ -5,7 +5,7 @@ CXC2025-Federato Thingy
 https://github.com/dianalam122/CXC2025frontend
 
 ## Description
-We cooked. Very cool Sparse GAT-MinGRU model that helps you predict your next user event. Model achieves ~86.7% accuracy on test & validation sets.
+We cooked. Very cool Sparse GAT-MinGRU model that helps you predict your next user event. Model achieves ~86.7% accuracy on test & validation sets (50 epochs).
 
 ## Installation
 Instructions on how to install and set up your project.
