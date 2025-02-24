@@ -3,11 +3,10 @@ import os, time, json
 from flask import Flask, jsonify, request
 from supabase import create_client, Client
 from flask_cors import CORS
+import torch
+from model import encode_data, GATMinGRU, decode_event
+from langchain_groq import ChatGroq
 import dotenv
-
-# import torch
-# from model import encode_data, GATMinGRU, decode_event
-# from langchain_groq import ChatGroq
 
 app = Flask(__name__)
 dotenv.load_dotenv()
@@ -37,6 +36,13 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TABLE_NAME = "v2_federato_amplitude_data"
 # TABLE_NAME = "v2024_1_federato_amplitude_data"
+
+model = GATMinGRU(input_size=166, hidden_size=512, event_embedding_size=16, gat_heads=4)
+checkpoint = torch.load("./model.pth", map_location=torch.device('cpu'))
+model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
+h_prev1=torch.zeros(1, 512)
+h_prev2=torch.zeros(1, 512)
 
 
 @app.route("/", methods=["GET"])
@@ -327,9 +333,8 @@ def get_user_data():
         return jsonify(user)
     return "no user", 400
 
-
-@app.route("/model/search/user_chunk/<int:user_id>/<int:chunk>", methods=["GET"])
-def get_user_chunk(user_id, chunk):
+@app.route("/model/search/user_chunk/<int:refined_user_id>/<int:chunk>", methods=["GET"])
+def get_user_chunk(refined_user_id, chunk):
     categories = [
         "amplitude_id",
         "app",
@@ -354,15 +359,8 @@ def get_user_chunk(user_id, chunk):
         "device_type",
         "os_name",
     ]
-
-    user_response = (
-        supabase.table("user_table")
-        .select(
-            "amplitude_id, average_session_time, total_session_time, user_retention_30"
-        )
-        .eq("user_id", user_id)
-        .execute()
-    )
+    user_id = supabase.table("user_table_refined_v3").select("user_id").eq("user_index", refined_user_id).execute().data[0]["user_id"]
+    user_response = supabase.table("user_table_refined_v3").select("amplitude_id, average_session_time, total_session_time, user_retention_30").eq("user_id", user_id).execute()
     user_response = user_response.data[0]
     amplitude_id = user_response["amplitude_id"]
 
@@ -376,9 +374,9 @@ def get_user_chunk(user_id, chunk):
             key = row[category]
             value = row[f"dict_{category}"]
             mapping[key] = value
-        dict_mapping[category] = mapping
-
-    batch_size = 10000
+        dict_mapping[category] = mapping    
+    
+    batch_size = 1000
     offset = chunk * batch_size
     events_response = []
 
@@ -394,8 +392,8 @@ def get_user_chunk(user_id, chunk):
         print(f"no chunk at rows {offset} to {offset + batch_size}")
         return f"no chunk at rows {offset} to {offset + batch_size}", 400
     events_response.extend(events_batch.data)
-
-    print(f"processed rows {offset} to {offset + batch_size}")
+    
+    print(f"processed rows {offset} to {offset + len(events_response)}")
 
     events = []
     for event in events_response:
@@ -467,37 +465,29 @@ def get_user_chunk(user_id, chunk):
 
     return jsonify(events)
 
-
-@app.route("/predict", methods=["POST"])
+@app.route("/predict/single", methods=["POST"])
 def predict():
     data = request.json  # Expecting JSON input
     if not data:
         return jsonify({"error": "No input data provided"}), 400
 
     # Encode the input data
-    encoded_features, (target_event_embedding, target_event_index, target_time) = (
-        encode_data(data)
-    )
+    encoded_features= encode_data(data, mode=1)
 
     # Convert to the appropriate tensor format
     encoded_features = encoded_features.unsqueeze(0)  # Add batch dimension if necessary
 
     # Forward pass through the model
     with torch.no_grad():
-        candidate_events, time_prediction = model(
-            encoded_features, edge_index=None, h_prev1=None, h_prev2=None
-        )
+        candidate_events, time_prediction = model(encoded_features, edge_index=None, h_prev1=h_prev1, h_prev2=h_prev2)
 
     # Decode the output
     decoded_event_index = decode_event(candidate_events[0], model.event_embedding_layer)
 
-    return jsonify(
-        {
-            "predicted_event_index": decoded_event_index,
-            "predicted_time": time_prediction.item(),  # Convert tensor to Python float
-        }
-    )
-
+    return jsonify({
+        "predicted_event_index": decoded_event_index,
+        "predicted_time": 10 ** (time_prediction.item()*10)  # Convert tensor to Python float
+    })
 
 if __name__ == "__main__":
     app.run(debug=True)
