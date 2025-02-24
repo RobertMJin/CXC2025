@@ -6,8 +6,10 @@ from flask_cors import CORS
 import torch
 from model import encode_data, GATMinGRU, decode_event
 from langchain_groq import ChatGroq
+import dotenv
 
 app = Flask(__name__)
+dotenv.load_dotenv()
 CORS(
     app,
     resources={
@@ -21,8 +23,13 @@ CORS(
     },
 )
 
+# llm = ChatGroq(model="mixtral-8x7b-32768")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+# model = GATMinGRU(input_size=166, hidden_size=256, event_embedding_size=16, gat_heads=2)
+# model.load_state_dict(torch.load("/Users/fahmiomer/CXC2025/checkpoint_epoch_6.pth")) 
+# model.eval() 
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -307,6 +314,17 @@ def create_user_session():
         event_json[f"dict_pet{i}"] = dict_mapping.get("event_type").get(events[4 - i])
 
     return jsonify(event_json)
+
+@app.route("/user-data", methods=["POST"])
+def get_user_data():
+    data = request.get_json()
+    user_id = data["user_id"]
+
+    user = supabase.table("user_table").select("*").eq("user_id", user_id).execute()
+    if user.data:
+        user = user.data[0]
+        return jsonify(user)
+    return "no user", 400
 
 @app.route("/model/search/user_chunk/<int:refined_user_id>/<int:chunk>", methods=["GET"])
 def get_user_chunk(refined_user_id, chunk):
