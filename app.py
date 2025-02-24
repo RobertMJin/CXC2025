@@ -19,6 +19,7 @@ CORS(
             "methods": ["GET", "POST", "OPTIONS"],  # Allowed methods
             "allow_headers": ["Content-Type", "Authorization"],  # Common headers
             "supports_credentials": True,
+            "expose_headers": ["Content-Type", "Authorization"],
         }
     },
 )
@@ -249,7 +250,7 @@ def get_profile():
     return jsonify(profile)
 
 
-@app.route("/create-session", methods=["GET", "POST"])
+@app.route("/create-session", methods=["GET", "POST", "OPTIONS"])
 def create_user_session():
     dicts = [
         "event_type",
@@ -267,7 +268,7 @@ def create_user_session():
 
     user_response = get_user_chunk(user_id, 0)
     if user_response.data:
-        user = json.loads(user_response.data.decode('utf-8'))[0]
+        user = json.loads(user_response.data.decode("utf-8"))[0]
 
     dict_mapping = {}
     for category in dicts:
@@ -308,7 +309,7 @@ def create_user_session():
         event_json[f"dict_{category}"] = dict_mapping.get(category).get(
             event_json[category]
         )
-    
+
     for i in range(1, 5):
         event_json[f"prev_{i}_event_type"] = events[4 - i]
         event_json[f"dict_pet{i}"] = dict_mapping.get("event_type").get(events[4 - i])
