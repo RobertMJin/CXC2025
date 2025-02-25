@@ -7,8 +7,10 @@ import torch
 from model import encode_data, GATMinGRU, decode_event
 from langchain_groq import ChatGroq
 import dotenv
+from openai import OpenAI
 
 app = Flask(__name__)
+
 dotenv.load_dotenv()
 CORS(
     app,
@@ -24,7 +26,9 @@ CORS(
     },
 )
 
-# llm = ChatGroq(model="mixtral-8x7b-32768")
+client = OpenAI(
+  api_key=os.environ.get("OPENAI_API_KEY"),
+)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
@@ -477,10 +481,38 @@ def predict():
 
     # Decode the output
     decoded_event_index = decode_event(candidate_events[0], model.event_embedding_layer)
+    decoded_event_index2 = decode_event(candidate_events[1], model.event_embedding_layer)
+    decoded_event_index3 = decode_event(candidate_events[2], model.event_embedding_layer)
 
     return jsonify({
         "predicted_event_index": decoded_event_index,
+        "predicted_event_index2": decoded_event_index2,
+        "predicted_event_index3": decoded_event_index3,
         "predicted_time": 10 ** (time_prediction.item()*10)  # Convert tensor to Python float
+    })
+    
+@app.route("/llminsights", methods=["POST"])
+class Solution:
+    suggestion: str
+    explanation: str
+class Response:
+    solutions: list[Solution]
+    summary: str
+    
+def llminsights():
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        store=True,
+        messages=[
+            {"role": "system", "content": "You are a data analyst for an online platform that wants to help increase user retention, mainly through reducing churn events from occurring."},
+            {f"role": "user", "content": "Explain how recommended actions can be surfaced to users in real-time at decisive moments (e.g., when they are about to exit the platform). Suggest strategies to encourage longer daily usage and improve feature adoption based \
+                on user behavior data. The next 3 predicted events for the current event {event_type} are:\n 1) {predicted_event_index1},  {probability1}, 2) {predicted_event_index2},  {probability2}, and 3) {predicted_event_index3},  {probability3}. This user commonly uses the following features: {features} and has a high probability of churning at these events {churn_events}."},
+        ],
+        response_format=Response
+    )
+
+    return jsonify({
+       "suggestion": completion.choices[0].message
     })
 
 if __name__ == "__main__":
