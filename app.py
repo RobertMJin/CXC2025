@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import os, time, json
 from flask import Flask, jsonify, request
 from supabase import create_client, Client
@@ -7,6 +7,7 @@ import torch
 from model import encode_data, GATMinGRU, decode_event
 from langchain_groq import ChatGroq
 import dotenv
+import traceback
 
 app = Flask(__name__)
 dotenv.load_dotenv()
@@ -259,77 +260,41 @@ def create_user_session():
 
     try:
         data = request.get_json()
-        print("Received data:", data)  # Debug log
+        print("Received data:", data)
 
         user_id = data["userId"]
         events = data["events"]
 
-        print(f"Looking up user_id: {user_id}")  # Debug log
+        # Get all user events using existing endpoint
+        user_events = get_user_sessions(user_id).json
+        if not user_events:
+            return jsonify({"error": "No events found for user"}), 404
 
-        # Try direct lookup in user_table first
-        try:
-            user = (
-                supabase.table("user_table")
-                .select("*")
-                .eq("user_id", user_id)
-                .execute()
-            )
+        # Get the latest event
+        latest_event = user_events[-1]
 
-            if not user.data:
-                return jsonify({"error": "User not found in any table"}), 404
-            user = user.data[0]
-
-        except Exception as e:
-            print(f"Error during user lookup: {str(e)}")  # Debug log
-            return jsonify({"error": f"User lookup failed: {str(e)}"}), 500
-
-        # Get event type dictionary mapping
-        dict_response = (
-            supabase.table("event_type").select("event_type, dict_event_type").execute()
+        # Create new event based on the latest event's data
+        event_json = latest_event.copy()
+        event_json.update(
+            {
+                "event_type": events[4],
+                "event_time": datetime.now().isoformat(),
+                "dict_next_et": None,
+                "next_et": None,
+            }
         )
-        event_type_mapping = {
-            row["event_type"]: row["dict_event_type"] for row in dict_response.data
-        }
 
-        # Initialize event_json with default values
-        event_json = {
-            "dict_next_et": None,
-            "next_et": None,
-            "time_since_last": 0,
-            "time_to_next_event": 0,
-            "app": 591532,  # Set default app value
-            "amplitude_id": user.get("amplitude_id", ""),
-            "average_session_time": user.get("average_session_time", 0),
-            "country": user.get("country", "Unknown"),
-            "device_family": user.get("device_family", "Unknown"),
-            "device_type": user.get("device_type", "Unknown"),
-            "language": user.get("language", "Unknown"),
-            "event_time": user.get("event_time", datetime.now().isoformat()),
-            "os_name": user.get("os_name", "Unknown"),
-            "region": user.get("region", "Unknown"),
-            "platform": user.get("platform", "Web"),
-            "event_type": events[4],
-            "dict_event_type": event_type_mapping.get(
-                events[4], 0
-            ),  # Default to 0 if not found
-            "session_id": user.get("session_id", 0),
-            "dict_region": 0,
-            "dict_country": 0,
-        }
-
-        # Set previous events and their dictionary values
+        # Set previous events from the input events array
         for i in range(1, 5):
             prev_event = events[4 - i]
             event_json[f"prev_{i}_event_type"] = prev_event
-            event_json[f"dict_pet{i}"] = event_type_mapping.get(
-                prev_event, 0
-            )  # Default to 0 if not found
-            event_json[f"time_since_last_{i}"] = 0
+            event_json[f"dict_pet{i}"] = user_events[-1][f"dict_pet{i}"]
+            event_json[f"time_since_last_{i}"] = None
 
         return jsonify(event_json)
 
     except Exception as e:
-        print(f"Error in create_user_session: {str(e)}")  # Debug log
+        print(f"Error in create_user_session: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -495,55 +460,87 @@ def get_user_chunk(refined_user_id, chunk):
 
 @app.route("/predict/single", methods=["POST"])
 def predict():
-    data = request.json  # Expecting JSON input
-    if not data:
-        return jsonify({"error": "No input data provided"}), 400
-
-    # Set default values for missing or empty fields
-    if not data.get("platform"):
-        data["platform"] = "Web"  # Default platform
-
-    if not data.get("device_type"):
-        data["device_type"] = "Unknown"
-
-    if not data.get("os_name"):
-        data["os_name"] = "Unknown"
-
-    if not data.get("language"):
-        data["language"] = "Unknown"
-
-    if not data.get("device_family"):
-        data["device_family"] = "Unknown"
-
     try:
-        # Encode the input data
+        data = request.json
+        print("Received prediction data:", data)
+
+        if not data:
+            return jsonify({"error": "No input data provided"}), 400
+
+        # Get event type mapping
+        event_type_response = (
+            supabase.table("event_type").select("event_type, dict_event_type").execute()
+        )
+        event_type_mapping = {
+            row["dict_event_type"]: row["event_type"]
+            for row in event_type_response.data
+        }
+
+        # Set default values for missing or empty fields
+        data["platform"] = data.get("platform", "Web")
+        data["device_type"] = data.get("device_type", "Unknown")
+        data["os_name"] = data.get("os_name", "Unknown")
+        data["language"] = data.get("language", "Unknown")
+        data["device_family"] = data.get("device_family", "Unknown")
+
+        # Encode data
+        print("Encoding data...")
         encoded_features = encode_data(data, mode=1)
+        if encoded_features is None:
+            print("encode_data returned None")
+            print("Input data:", data)
+            return jsonify({"error": "Failed to encode input data"}), 500
 
-        # Convert to the appropriate tensor format
-        encoded_features = encoded_features.unsqueeze(
-            0
-        )  # Add batch dimension if necessary
+        # Add batch dimension
+        encoded_features = encoded_features.unsqueeze(0)
 
-        # Forward pass through the model
+        # Create edge_index for single prediction
+        edge_index = torch.tensor([[0], [0]], dtype=torch.long)
+
+        h_prev1 = torch.zeros(1, 512)
+        h_prev2 = torch.zeros(1, 512)
+
+        # Make prediction with hidden states
+        print("Making prediction...")
         with torch.no_grad():
             candidate_events, time_prediction = model(
-                encoded_features, edge_index=None, h_prev1=h_prev1, h_prev2=h_prev2
+                encoded_features,
+                edge_index=edge_index,
+                h_prev1=h_prev1,
+                h_prev2=h_prev2,
             )
 
-        # Decode the output
-        decoded_event_index = decode_event(
-            candidate_events[0], model.event_embedding_layer
-        )
+            if candidate_events is None:
+                return jsonify({"error": "Model returned no candidate events"}), 500
 
-        return jsonify(
-            {
-                "predicted_event_index": decoded_event_index,
-                "predicted_time": 10 ** (time_prediction.item() * 10),
-            }
-        )
+            # Use the first candidate embedding (matching test.py)
+            decoded_event_index = decode_event(
+                candidate_events[0][0], model.event_embedding_layer
+            )
+
+            if decoded_event_index is None:
+                return jsonify({"error": "Failed to decode event"}), 500
+
+            # Look up actual event type
+            predicted_event_type = event_type_mapping.get(
+                decoded_event_index, "unknown_event"
+            )
+            print("Successfully decoded event:", predicted_event_type)
+
+            # Calculate predicted time
+            predicted_time = 10 ** (time_prediction.item() * 10)
+
+            return jsonify(
+                {
+                    "predicted_event_index": predicted_event_type,
+                    "predicted_time": predicted_time,
+                }
+            )
+
     except Exception as e:
-        print(f"Prediction error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        print("Error in prediction endpoint:")
+        print(traceback.format_exc())
+        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
