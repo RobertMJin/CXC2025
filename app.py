@@ -562,23 +562,25 @@ def get_similar_events():
         all_events = [row["event_type"] for row in event_type_response.data]
 
         # Create prompt for OpenAI
-        prompt = f"""Given the Federato event type "{event_type}", analyze this list of events and return the 5 most semantically similar events (including the original event) with their probability percentage scores (as probabilities that sum to 100%):
+        prompt = f"""Given the Federato event type "{event_type}", analyze this list of events and return the 5 most semantically similar events (including the original event) with their probability scores:
         {all_events}
 
-        Return only a JSON array of objects with 'event' and 'probability' fields, ordered by probability descending. Example:
-        [
-            {{"event": "original_event", "probability": 78%}},
-            {{"event": "similar_event1", "probability": 65%}},
-            {{"event": "similar_event2", "probability": 60%}},
-            {{"event": "similar_event3", "probability": 45%}},
-            {{"event": "similar_event4", "probability": 35%}}
-        ]
+        Return a JSON object with a 'similar_events' array containing objects with 'event' and 'probability' fields, ordered by probability descending. Example:
+        {{
+            "similar_events": [
+                {{"event": "original_event", "probability": 0.78}},
+                {{"event": "similar_event1", "probability": 0.65}},
+                {{"event": "similar_event2", "probability": 0.60}},
+                {{"event": "similar_event3", "probability": 0.45}},
+                {{"event": "similar_event4", "probability": 0.35}}
+            ]
+        }}
         """
 
         # Get completion from OpenAI
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
-            response_format={"type": "json"},
+            response_format={"type": "json_object"},
             messages=[
                 {
                     "role": "system",
@@ -588,10 +590,11 @@ def get_similar_events():
             ],
         )
 
-        # Parse response
-        similar_events = json.loads(completion.choices[0].message.content)
+        # Parse response and ensure we return the array
+        response_data = json.loads(completion.choices[0].message.content)
+        similar_events = response_data.get("similar_events", [])
 
-        return jsonify(similar_events)
+        return jsonify(similar_events)  # Return just the array
 
     except Exception as e:
         print("Error finding similar events:")
