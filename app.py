@@ -27,7 +27,7 @@ CORS(
 )
 
 client = OpenAI(
-  api_key=os.environ.get("OPENAI_API_KEY"),
+    api_key=os.environ.get("OPENAI_API_KEY"),
 )
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -544,6 +544,91 @@ def predict():
         print("Error in prediction endpoint:")
         print(traceback.format_exc())
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+
+
+@app.route("/llminsights", methods=["POST"])
+class Solution:
+    suggestion: str
+    explanation: str
+
+
+class Response:
+    solutions: list[Solution]
+    summary: str
+
+
+def llminsights():
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        store=True,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a data analyst for an online platform that wants to help increase user retention, mainly through reducing churn events from occurring.",
+            },
+            {
+                f"role": "user",
+                "content": "Explain how recommended actions can be surfaced to users in real-time at decisive moments (e.g., when they are about to exit the platform). Suggest strategies to encourage longer daily usage and improve feature adoption based \
+                on user behavior data. The next 3 predicted events for the current event {event_type} are:\n 1) {predicted_event_index1},  {probability1}, 2) {predicted_event_index2},  {probability2}, and 3) {predicted_event_index3},  {probability3}. This user commonly uses the following features: {features} and has a high probability of churning at these events {churn_events}.",
+            },
+        ],
+        response_format=Response,
+    )
+
+    return jsonify({"suggestion": completion.choices[0].message})
+
+
+@app.route("/similar-events", methods=["POST"])
+def get_similar_events():
+    try:
+        data = request.get_json()
+        event_type = data.get("event_type")
+
+        if not event_type:
+            return jsonify({"error": "No event type provided"}), 400
+
+        # Get all event types from database
+        event_type_response = (
+            supabase.table("event_type").select("event_type, dict_event_type").execute()
+        )
+        all_events = [row["event_type"] for row in event_type_response.data]
+
+        # Create prompt for OpenAI
+        prompt = f"""Given the Federato event type "{event_type}", analyze this list of events and return the 5 most semantically similar events (including the original event) with their probability percentage scores (as probabilities that sum to 100%):
+        {all_events}
+
+        Return only a JSON array of objects with 'event' and 'probability' fields, ordered by probability descending. Example:
+        [
+            {{"event": "original_event", "probability": 78%}},
+            {{"event": "similar_event1", "probability": 65%}},
+            {{"event": "similar_event2", "probability": 60%}},
+            {{"event": "similar_event3", "probability": 45%}},
+            {{"event": "similar_event4", "probability": 35%}}
+        ]
+        """
+
+        # Get completion from OpenAI
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            response_format={"type": "json"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that finds similar events based on semantic meaning. Return only JSON with exactly 5 events and probabilities (they don't have to sum to 100%).",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+
+        # Parse response
+        similar_events = json.loads(completion.choices[0].message.content)
+
+        return jsonify(similar_events)
+
+    except Exception as e:
+        print("Error finding similar events:")
+        print(traceback.format_exc())
+        return jsonify({"error": f"Failed to find similar events: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
