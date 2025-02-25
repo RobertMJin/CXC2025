@@ -5,7 +5,6 @@ from supabase import create_client, Client
 from flask_cors import CORS
 import torch
 from model import encode_data, GATMinGRU, decode_event
-from langchain_groq import ChatGroq
 import dotenv
 from openai import OpenAI
 
@@ -33,8 +32,8 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # model = GATMinGRU(input_size=166, hidden_size=256, event_embedding_size=16, gat_heads=2)
-# model.load_state_dict(torch.load("/Users/fahmiomer/CXC2025/checkpoint_epoch_6.pth")) 
-# model.eval() 
+# model.load_state_dict(torch.load("/Users/fahmiomer/CXC2025/checkpoint_epoch_6.pth"))
+# model.eval()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -42,11 +41,11 @@ TABLE_NAME = "v2_federato_amplitude_data"
 # TABLE_NAME = "v2024_1_federato_amplitude_data"
 
 model = GATMinGRU(input_size=166, hidden_size=512, event_embedding_size=16, gat_heads=4)
-checkpoint = torch.load("./model.pth", map_location=torch.device('cpu'))
-model.load_state_dict(checkpoint['model_state_dict'])
+checkpoint = torch.load("./model.pth", map_location=torch.device("cpu"))
+model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
-h_prev1=torch.zeros(1, 512)
-h_prev2=torch.zeros(1, 512)
+h_prev1 = torch.zeros(1, 512)
+h_prev2 = torch.zeros(1, 512)
 
 
 @app.route("/", methods=["GET"])
@@ -256,74 +255,91 @@ def get_profile():
 
 @app.route("/create-session", methods=["GET", "POST", "OPTIONS"])
 def create_user_session():
-    dicts = [
-        "event_type",
-        "region",
-        "country",
-        "language",
-        "device_family",
-        "device_type",
-        "os_name",
-    ]
-    data = request.get_json()
-    user_id = data["user_id"]
-    events = data["events"]
-    user = None
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
 
-    user_response = get_user_chunk(user_id, 0)
-    if user_response.data:
-        user = json.loads(user_response.data.decode("utf-8"))[0]
+    try:
+        data = request.get_json()
+        print("Received data:", data)  # Debug log
 
-    dict_mapping = {}
-    for category in dicts:
+        user_id = data["userId"]
+        events = data["events"]
+
+        print(f"Looking up user_id: {user_id}")  # Debug log
+
+        # Try direct lookup in user_table first
+        try:
+            user = (
+                supabase.table("user_table")
+                .select("*")
+                .eq("user_id", user_id)
+                .execute()
+            )
+
+            if not user.data:
+                return jsonify({"error": "User not found in any table"}), 404
+            user = user.data[0]
+
+        except Exception as e:
+            print(f"Error during user lookup: {str(e)}")  # Debug log
+            return jsonify({"error": f"User lookup failed: {str(e)}"}), 500
+
+        # Get event type dictionary mapping
         dict_response = (
-            supabase.table(category).select(f"{category}, dict_{category}").execute()
+            supabase.table("event_type").select("event_type, dict_event_type").execute()
         )
-        mapping = {}
-        for row in dict_response.data:
-            key = row[category]
-            value = row[f"dict_{category}"]
-            mapping[key] = value
-        dict_mapping[category] = mapping
+        event_type_mapping = {
+            row["event_type"]: row["dict_event_type"] for row in dict_response.data
+        }
 
-    event_json = {}
+        # Initialize event_json with default values
+        event_json = {
+            "dict_next_et": None,
+            "next_et": None,
+            "time_since_last": 0,
+            "time_to_next_event": 0,
+            "app": 591532,  # Set default app value
+            "amplitude_id": user.get("amplitude_id", ""),
+            "average_session_time": user.get("average_session_time", 0),
+            "country": user.get("country", "Unknown"),
+            "device_family": user.get("device_family", "Unknown"),
+            "device_type": user.get("device_type", "Unknown"),
+            "language": user.get("language", "Unknown"),
+            "event_time": user.get("event_time", datetime.now().isoformat()),
+            "os_name": user.get("os_name", "Unknown"),
+            "region": user.get("region", "Unknown"),
+            "platform": user.get("platform", "Web"),
+            "event_type": events[4],
+            "dict_event_type": event_type_mapping.get(
+                events[4], 0
+            ),  # Default to 0 if not found
+            "session_id": user.get("session_id", 0),
+            "dict_region": 0,
+            "dict_country": 0,
+        }
 
-    event_json["dict_next_et"] = None
-    event_json["next_et"] = None
-    event_json["time_since_last"] = 0
-    event_json["time_to_next_event"] = 0
-    for j in range(1, 5):
-        event_json[f"dict_pet{j}"] = None
-        event_json[f"prev_{j}_event_type"] = None
-        event_json[f"time_since_last_{j}"] = 0
+        # Set previous events and their dictionary values
+        for i in range(1, 5):
+            prev_event = events[4 - i]
+            event_json[f"prev_{i}_event_type"] = prev_event
+            event_json[f"dict_pet{i}"] = event_type_mapping.get(
+                prev_event, 0
+            )  # Default to 0 if not found
+            event_json[f"time_since_last_{i}"] = 0
 
-    event_json["app"] = user["app"]
-    event_json["amplitude_id"] = user["amplitude_id"]
-    event_json["average_session_time"] = user["average_session_time"]
-    event_json["country"] = user["country"]
-    event_json["device_family"] = user["device_family"]
-    event_json["device_type"] = user["device_type"]
-    event_json["language"] = user["language"]
-    event_json["event_time"] = user["event_time"]
-    event_json["os_name"] = user["os_name"]
-    event_json["region"] = user["region"]
-    event_json["platform"] = user["platform"]
-    event_json["event_type"] = events[4]
-    for category in dicts:
-        event_json[f"dict_{category}"] = dict_mapping.get(category).get(
-            event_json[category]
-        )
+        return jsonify(event_json)
 
-    for i in range(1, 5):
-        event_json[f"prev_{i}_event_type"] = events[4 - i]
-        event_json[f"dict_pet{i}"] = dict_mapping.get("event_type").get(events[4 - i])
+    except Exception as e:
+        print(f"Error in create_user_session: {str(e)}")  # Debug log
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify(event_json)
 
 @app.route("/user-data", methods=["POST"])
 def get_user_data():
     data = request.get_json()
-    user_id = data["user_id"]
+    user_id = data["userId"]
 
     user = supabase.table("user_table").select("*").eq("user_id", user_id).execute()
     if user.data:
@@ -331,7 +347,10 @@ def get_user_data():
         return jsonify(user)
     return "no user", 400
 
-@app.route("/model/search/user_chunk/<int:refined_user_id>/<int:chunk>", methods=["GET"])
+
+@app.route(
+    "/model/search/user_chunk/<int:refined_user_id>/<int:chunk>", methods=["GET"]
+)
 def get_user_chunk(refined_user_id, chunk):
     categories = [
         "amplitude_id",
@@ -357,8 +376,21 @@ def get_user_chunk(refined_user_id, chunk):
         "device_type",
         "os_name",
     ]
-    user_id = supabase.table("user_table_refined_v3").select("user_id").eq("user_index", refined_user_id).execute().data[0]["user_id"]
-    user_response = supabase.table("user_table_refined_v3").select("amplitude_id, average_session_time, total_session_time, user_retention_30").eq("user_id", user_id).execute()
+    user_id = (
+        supabase.table("user_table_refined_v3")
+        .select("user_id")
+        .eq("user_index", refined_user_id)
+        .execute()
+        .data[0]["user_id"]
+    )
+    user_response = (
+        supabase.table("user_table_refined_v3")
+        .select(
+            "amplitude_id, average_session_time, total_session_time, user_retention_30"
+        )
+        .eq("user_id", user_id)
+        .execute()
+    )
     user_response = user_response.data[0]
     amplitude_id = user_response["amplitude_id"]
 
@@ -372,8 +404,8 @@ def get_user_chunk(refined_user_id, chunk):
             key = row[category]
             value = row[f"dict_{category}"]
             mapping[key] = value
-        dict_mapping[category] = mapping    
-    
+        dict_mapping[category] = mapping
+
     batch_size = 1000
     offset = chunk * batch_size
     events_response = []
@@ -390,7 +422,7 @@ def get_user_chunk(refined_user_id, chunk):
         print(f"no chunk at rows {offset} to {offset + batch_size}")
         return f"no chunk at rows {offset} to {offset + batch_size}", 400
     events_response.extend(events_batch.data)
-    
+
     print(f"processed rows {offset} to {offset + len(events_response)}")
 
     events = []
@@ -463,33 +495,60 @@ def get_user_chunk(refined_user_id, chunk):
 
     return jsonify(events)
 
+
 @app.route("/predict/single", methods=["POST"])
 def predict():
     data = request.json  # Expecting JSON input
     if not data:
         return jsonify({"error": "No input data provided"}), 400
 
-    # Encode the input data
-    encoded_features= encode_data(data, mode=1)
+    # Set default values for missing or empty fields
+    if not data.get("platform"):
+        data["platform"] = "Web"  # Default platform
 
-    # Convert to the appropriate tensor format
-    encoded_features = encoded_features.unsqueeze(0)  # Add batch dimension if necessary
+    if not data.get("device_type"):
+        data["device_type"] = "Unknown"
 
-    # Forward pass through the model
-    with torch.no_grad():
-        candidate_events, time_prediction = model(encoded_features, edge_index=None, h_prev1=h_prev1, h_prev2=h_prev2)
+    if not data.get("os_name"):
+        data["os_name"] = "Unknown"
 
+    if not data.get("language"):
+        data["language"] = "Unknown"
+
+    if not data.get("device_family"):
+        data["device_family"] = "Unknown"
+
+    try:
+        # Encode the input data
+        encoded_features = encode_data(data, mode=1)
+
+        # Convert to the appropriate tensor format
+        encoded_features = encoded_features.unsqueeze(
+            0
+        )  # Add batch dimension if necessary
+
+        # Forward pass through the model
+        with torch.no_grad():
+            candidate_events, time_prediction = model(
+                encoded_features, edge_index=None, h_prev1=h_prev1, h_prev2=h_prev2
+            )
+    except Exception as e:
+        print(f"Prediction error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
     # Decode the output
     decoded_event_index = decode_event(candidate_events[0], model.event_embedding_layer)
     decoded_event_index2 = decode_event(candidate_events[1], model.event_embedding_layer)
     decoded_event_index3 = decode_event(candidate_events[2], model.event_embedding_layer)
+    return jsonify(
+        {
+            "predicted_event_index": decoded_event_index,
+            "predicted_event_index2": decoded_event_index2,
+            "predicted_event_index3": decoded_event_index3,
+            "predicted_time": 10 ** (time_prediction.item() * 10),
+        }
+    )
+    
 
-    return jsonify({
-        "predicted_event_index": decoded_event_index,
-        "predicted_event_index2": decoded_event_index2,
-        "predicted_event_index3": decoded_event_index3,
-        "predicted_time": 10 ** (time_prediction.item()*10)  # Convert tensor to Python float
-    })
     
 @app.route("/llminsights", methods=["POST"])
 class Solution:
@@ -516,4 +575,4 @@ def llminsights():
     })
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(port=5000, debug=True)

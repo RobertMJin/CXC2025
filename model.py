@@ -509,7 +509,7 @@ def decode_event(candidate_embedding, event_embedding_layer):
     # Compute the Euclidean distances between candidate_embedding and all event embeddings
     distances = torch.norm(event_table - candidate_embedding.unsqueeze(0), p=2, dim=1)  # [num_events]
     
-    # Return the index with the minimum distance
+    # Return the all indices
     event_idx = torch.argmin(distances).item()
     return event_idx
 
