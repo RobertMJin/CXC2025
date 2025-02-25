@@ -5,11 +5,12 @@ from supabase import create_client, Client
 from flask_cors import CORS
 import torch
 from model import encode_data, GATMinGRU, decode_event
-from langchain_groq import ChatGroq
 import dotenv
 import traceback
+from openai import OpenAI
 
 app = Flask(__name__)
+
 dotenv.load_dotenv()
 CORS(
     app,
@@ -25,7 +26,9 @@ CORS(
     },
 )
 
-# llm = ChatGroq(model="mixtral-8x7b-32768")
+client = OpenAI(
+  api_key=os.environ.get("OPENAI_API_KEY"),
+)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
