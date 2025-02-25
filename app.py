@@ -546,38 +546,6 @@ def predict():
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
 
 
-@app.route("/llminsights", methods=["POST"])
-class Solution:
-    suggestion: str
-    explanation: str
-
-
-class Response:
-    solutions: list[Solution]
-    summary: str
-
-
-def llminsights():
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        store=True,
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a data analyst for an online platform that wants to help increase user retention, mainly through reducing churn events from occurring.",
-            },
-            {
-                f"role": "user",
-                "content": "Explain how recommended actions can be surfaced to users in real-time at decisive moments (e.g., when they are about to exit the platform). Suggest strategies to encourage longer daily usage and improve feature adoption based \
-                on user behavior data. The next 3 predicted events for the current event {event_type} are:\n 1) {predicted_event_index1},  {probability1}, 2) {predicted_event_index2},  {probability2}, and 3) {predicted_event_index3},  {probability3}. This user commonly uses the following features: {features} and has a high probability of churning at these events {churn_events}.",
-            },
-        ],
-        response_format=Response,
-    )
-
-    return jsonify({"suggestion": completion.choices[0].message})
-
-
 @app.route("/similar-events", methods=["POST"])
 def get_similar_events():
     try:
@@ -629,6 +597,91 @@ def get_similar_events():
         print("Error finding similar events:")
         print(traceback.format_exc())
         return jsonify({"error": f"Failed to find similar events: {str(e)}"}), 500
+
+
+class Solution:
+    suggestion: str
+    explanation: str
+
+
+class Response:
+    solutions: list[Solution]
+    summary: str
+
+
+@app.route("/llminsights", methods=["POST"])
+def llminsights():
+    try:
+        # Extract data from request payload
+        data = request.get_json()
+
+        event_type = data.get("event_type", "unknown_event")
+        predicted_events = data.get("predicted_events", [])
+        features = data.get("features", [])
+        churn_events = data.get("churn_events", [])
+
+        # Ensure predicted_events has at least 3 items
+        predicted_events = predicted_events + [("", 0)] * (
+            3 - len(predicted_events)
+        )  # Fill missing values
+        predicted_event_index1, probability1 = predicted_events[0]
+        predicted_event_index2, probability2 = predicted_events[1]
+        predicted_event_index3, probability3 = predicted_events[2]
+
+        # Construct messages
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a data analyst for an online platform that wants to help increase user retention, mainly through reducing churn events from occurring.",
+            },
+            {
+                "role": "user",
+                "content": f"Explain how recommended actions can be surfaced to users in real-time at decisive moments (e.g., when they are about to exit the platform). "
+                f"Suggest strategies to encourage longer daily usage and improve feature adoption based on user behavior data. "
+                f"The next 3 predicted events for the current event {event_type} are:\n "
+                f"1) {predicted_event_index1}, {probability1}, 2) {predicted_event_index2}, {probability2}, and 3) {predicted_event_index3}, {probability3}. "
+                f"This user commonly uses the following features: {', '.join(features)} and has a high probability of churning at these events {', '.join(churn_events)}.",
+            },
+        ]
+
+        # Define structured response format schema
+        response_schema = {
+            "type": "object",
+            "properties": {
+                "solutions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "suggestion": {"type": "string"},
+                            "explanation": {"type": "string"},
+                        },
+                        "required": ["suggestion", "explanation"],
+                    },
+                },
+                "summary": {"type": "string"},
+            },
+            "required": ["solutions", "summary"],
+        }
+
+        # Call OpenAI API
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            response_format="json",
+            tool_choice={
+                "type": "schema",
+                "schema": response_schema,
+            },  # Specify the schema
+        )
+
+        # Extract structured response
+        response_data = completion.choices[0].message["content"]
+
+        return jsonify(response_data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
