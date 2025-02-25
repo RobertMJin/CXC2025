@@ -615,31 +615,25 @@ class Response:
 @app.route("/llminsights", methods=["POST"])
 def llminsights():
     try:
-        # Extract data from request payload
         data = request.get_json()
-
         event_type = data.get("event_type", "unknown_event")
         predicted_events = data.get("predicted_events", [])
         features = data.get("features", [])
         churn_events = data.get("churn_events", [])
 
-        # Ensure predicted_events has at least 3 items
-        predicted_events = predicted_events + [("", 0)] * (
-            3 - len(predicted_events)
-        )  # Fill missing values
+        predicted_events = predicted_events + [("", 0)] * (3 - len(predicted_events))
         predicted_event_index1, probability1 = predicted_events[0]
         predicted_event_index2, probability2 = predicted_events[1]
         predicted_event_index3, probability3 = predicted_events[2]
 
-        # Construct messages
         messages = [
             {
                 "role": "system",
-                "content": "You are a data analyst for an online platform that wants to help increase user retention, mainly through reducing churn events from occurring.",
+                "content": "You are a data analyst for an online platform that wants to help increase user retention. Provide your analysis in JSON format with a 'solutions' array containing objects with 'suggestion' and 'explanation' fields, and a 'summary' field for the overall insight.",
             },
             {
                 "role": "user",
-                "content": f"Explain how recommended actions can be surfaced to users in real-time at decisive moments (e.g., when they are about to exit the platform). "
+                "content": f"Explain how recommended actions can be surfaced to users in real-time at decisive moments. "
                 f"Suggest strategies to encourage longer daily usage and improve feature adoption based on user behavior data. "
                 f"The next 3 predicted events for the current event {event_type} are:\n "
                 f"1) {predicted_event_index1}, {probability1}, 2) {predicted_event_index2}, {probability2}, and 3) {predicted_event_index3}, {probability3}. "
@@ -647,40 +641,14 @@ def llminsights():
             },
         ]
 
-        # Define structured response format schema
-        response_schema = {
-            "type": "object",
-            "properties": {
-                "solutions": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "suggestion": {"type": "string"},
-                            "explanation": {"type": "string"},
-                        },
-                        "required": ["suggestion", "explanation"],
-                    },
-                },
-                "summary": {"type": "string"},
-            },
-            "required": ["solutions", "summary"],
-        }
-
-        # Call OpenAI API
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
-            response_format="json",
-            tool_choice={
-                "type": "schema",
-                "schema": response_schema,
-            },  # Specify the schema
+            response_format={"type": "json_object"},
+            temperature=0.7,
         )
 
-        # Extract structured response
-        response_data = completion.choices[0].message["content"]
-
+        response_data = json.loads(completion.choices[0].message.content)
         return jsonify(response_data)
 
     except Exception as e:
